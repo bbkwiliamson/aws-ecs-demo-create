@@ -4,7 +4,7 @@ Parameters:
   Team:
     Type: String
     Description: the name of the team
-    Default: SBG-DevOps
+    Default: brian-DevOps
 
   TeamEmail:
     Type: String
@@ -55,7 +55,7 @@ Resources:
     Type: 'AWS::IAM::Role'
     Properties:
       RoleName: "bounded-ecs-task-role-poc-execution"
-      PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/BoundedPermissionsPolicy"
+      #PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/BoundedPermissionsPolicy"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -111,7 +111,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: security group for ECS Service
-      VpcId: vpc-0a9840949342cbd17 #sit tools application vpc @customer-mobile-account
+      VpcId:  your vpc id (that goes together with the subnets)
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: '443'
@@ -162,8 +162,8 @@ Resources:
   #         SecurityGroups:
   #           - !Ref MyALBSecurityGroupService
   #         Subnets:
-  #           - subnet-0a6e79705a161185b #subnet-0a4e7ebe2f50002e6 your subnet
-  #           - subnet-0f3eba7e6758653b4 #subnet-0f3a1c299acfdd5db your subnet
+  #           -  your subnet id
+  #           -  your subnet id
     
   ECSPocSERVICE:
     # DependsOn:
@@ -189,8 +189,8 @@ Resources:
           SecurityGroups:
             - !Ref MyALBSecurityGroupService
           Subnets:
-            - subnet-0a6e79705a161185b #subnet-0a4e7ebe2f50002e6
-            - subnet-0f3eba7e6758653b4 #subnet-0f3a1c299acfdd5db
+            - your subnet id
+            - your subnet id
       PropagateTags: TASK_DEFINITION  # SERVICE
       EnableECSManagedTags: true
       ServiceName: poc-auto-service-bbk # the stack update fails if this is set and any properties that change and need replacement of the resource
