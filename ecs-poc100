@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  Team:
+    Type: String
+    Description: the name of the team
+    Default: SBG-DevOps
+
+  TeamEmail:
+    Type: String
+    Description: team e-mail address
+    Default: example@example.com
+
+  Env:
+    Type: String
+    Default: dev
+    Description: Environment the resources/ stack is deployed to
+    AllowedValues:
+      - "dev"
+      - "sit"
+      - "prod"
+
+
+Resources:
+  # ECSAutoScaleGroup:
+  #   Type: AWS::ECS::......
+  # ECSPOCCapacityProvider:
+  #   Type: AWS::ECS::CapacityProvider
+  #   Properties:
+  #     AutoScalingGroupProvider:
+  #       AutoScalingGroupArn: 
+  #     Name: ecs-poc-capacity-bbk
+  #     Tags:
+  #       - Key: NAME
+  #         Value: ECS-POC-CAPACITY-BBK
+  #       - Key: Environment
+  #         Value: !Ref Env
+  #       - Key: EMAIL
+  #         Value: !Ref TeamEmail
+  #       - Key: TEAM
+  #         Value: !Ref Team
+
+
+  ECSPocAutoLaunch:
+    Type: AWS::ECS::Cluster
+    Properties:
+      CapacityProviders:
+        - "FARGATE" #!Ref ECSPOCCapacityProvider
+      ClusterName: POC-Cluster-bbk
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+    
+  BoundedECSTaskRole: #creation of ecs task role
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: "bounded-ecs-task-role-poc-execution"
+      PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/BoundedPermissionsPolicy"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: "/bounded/"
+      Policies:
+        - PolicyName: "bounded-ecs-task-role-poc-execution-policy"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                 - "*" 
+                Resource: "*"
+
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Image: httpd:2.4
+          Name: poc-container-bbk
+          Memory: 2048
+          
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - "FARGATE"
+      Cpu: 1024
+      Family: poc-task-family-version-bbk
+      Memory: 2048
+      # TaskRoleArn: !Ref BoundedECSTaskRole
+      # ExecutionRoleArn: 
+    
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      Tags:
+        - Key: NAME
+          Value: ECS-POC-CAPACITY-BBK
+        - Key: Environment
+          Value: !Ref Env
+        - Key: EMAIL
+          Value: !Ref TeamEmail
+        - Key: TEAM
+          Value: !Ref Team
+  
+  MyALBSecurityGroupService:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group for ECS Service
+      VpcId: vpc-0a9840949342cbd17 #sit tools application vpc @customer-mobile-account
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '0.0.0.0/0'
+
+  # ECSServiceAutoScaling:
+  #   Type: AWS::ApplicationAutoScaling::ScalingPolicy
+  #   Properties:
+  #     PolicyName: eccs-poc-autoscaling-bbk
+  #     PolicyType: TargetTrackingScaling
+  #     ScalableDimension: ecs:service:DesiredCount
+  #     ServiceNamespace: ecs
+  #     ResourceId: !Ref ECSPocAutoLaunch
+  #     TargetTrackingScalingPolicyConfiguration:
+  #       PredefinedMetricSpecification:
+  #         PredefinedMetricType: ECSServiceAverageCPUUtilization
+  #       TargetValue: 60
+  #       DisableScaleIn: false
+  #       ScaleInCooldown: 600
+  #       ScaleOutCooldown: 300
+
+#if you want to increase/decrease your tasks on schedule, below is an example of how to do it
+  # ECSScheduleTask:
+  #   Type: AWS::Scheduler::Schedule
+  #   Properties:
+  #     EnableExecuteCommand: true
+  #     LaunchType: FARGATE
+  #     EnableECSManagedTags: true
+  #     PlatformVersion: LATEST
+  #     TaskCount: 4
+  #     TaskDefinitionArn: !Ref ECSTaskDefinition
+      
+  #     State: ENABLED
+  #     ScheduleExpressionTimezone: local
+  #     ScheduleExpression: cron(0 5 25 * ? *)
+  #     NetworkConfiguration:
+  #       AwsvpcConfiguration:
+  #         AssignPublicIp: ENABLED
+  #         SecurityGroups:
+  #           - !Ref MyALBSecurityGroupService
+  #         Subnets:
+  #           - subnet-0a6e79705a161185b #subnet-0a4e7ebe2f50002e6 your subnet
+  #           - subnet-0f3eba7e6758653b4 #subnet-0f3a1c299acfdd5db your subnet
+    
+  ECSPocSERVICE:
+    # DependsOn:
+    #  - !Ref ECSPocAutoLaunch
+    Type: AWS::ECS::Service
+    Properties:
+      PlatformVersion: LATEST
+      Cluster: !Ref ECSPocAutoLaunch
+      DesiredCount: 2
+      EnableExecuteCommand: true
+      LaunchType: FARGATE
+      
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref MyALBSecurityGroupService
+          Subnets:
+            - subnet-0a6e79705a161185b #subnet-0a4e7ebe2f50002e6
+            - subnet-0f3eba7e6758653b4 #subnet-0f3a1c299acfdd5db
+      PropagateTags: TASK_DEFINITION  # SERVICE
+      EnableECSManagedTags: true
+      ServiceName: poc-auto-service-bbk # the stack update fails if this is set and any properties that change and need replacement of the resource
+      TaskDefinition: !Ref ECSTaskDefinition
+      Tags:
+        - Key: NAME
+          Value: ECS-POC-CAPACITY-BBK
+        - Key: Environment
+          Value: !Ref Env
+        - Key: EMAIL
+          Value: !Ref TeamEmail
+        - Key: TEAM
+          Value: !Ref Team
