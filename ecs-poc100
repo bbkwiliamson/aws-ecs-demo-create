@@ -42,14 +42,13 @@ Resources:
 
 
   ECSPocAutoLaunch:
-    Type: AWS::ECS::Cluster
-    Properties:
-      CapacityProviders:
-        - "FARGATE" #!Ref ECSPOCCapacityProvider
-      ClusterName: POC-Cluster-bbk
-      ClusterSettings:
-        - Name: containerInsights
-          Value: enabled
+    cExampleCluster:
+      Type: AWS::ECS::Cluster
+      Properties:
+        ClusterName: example-cluster-poc
+        ClusterSettings:
+          - Name: containerInsights
+            Value: enabled
     
   BoundedECSTaskRole: #creation of ecs task role
     Type: 'AWS::IAM::Role'
@@ -63,7 +62,7 @@ Resources:
             Principal:
               Service:
                 - ecs-tasks.amazonaws.com
-                - ec2.amazonaws.com
+               
             Action:
               - 'sts:AssumeRole'
       Path: "/bounded/"
@@ -81,9 +80,12 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ContainerDefinitions:
-        - Image: httpd:2.4
+        - Image: nginx:latest
           Name: poc-container-bbk
           Memory: 2048
+          PortMappings:
+            - ContainerPort: 80
+            - ContainerPort: 443
           
       NetworkMode: awsvpc
       RequiresCompatibilities:
@@ -126,48 +128,71 @@ Resources:
           ToPort: '22'
           CidrIp: '0.0.0.0/0'
 
-  # ECSServiceAutoScaling:
-  #   Type: AWS::ApplicationAutoScaling::ScalingPolicy
-  #   Properties:
-  #     PolicyName: eccs-poc-autoscaling-bbk
-  #     PolicyType: TargetTrackingScaling
-  #     ScalableDimension: ecs:service:DesiredCount
-  #     ServiceNamespace: ecs
-  #     ResourceId: !Ref ECSPocAutoLaunch
-  #     TargetTrackingScalingPolicyConfiguration:
-  #       PredefinedMetricSpecification:
-  #         PredefinedMetricType: ECSServiceAverageCPUUtilization
-  #       TargetValue: 60
-  #       DisableScaleIn: false
-  #       ScaleInCooldown: 600
-  #       ScaleOutCooldown: 300
+
 
 #if you want to increase/decrease your tasks on schedule, below is an example of how to do it
-  # ECSScheduleTask:
-  #   Type: AWS::Scheduler::Schedule
-  #   Properties:
-  #     EnableExecuteCommand: true
-  #     LaunchType: FARGATE
-  #     EnableECSManagedTags: true
-  #     PlatformVersion: LATEST
-  #     TaskCount: 4
-  #     TaskDefinitionArn: !Ref ECSTaskDefinition
-      
-  #     State: ENABLED
-  #     ScheduleExpressionTimezone: local
-  #     ScheduleExpression: cron(0 5 25 * ? *)
-  #     NetworkConfiguration:
-  #       AwsvpcConfiguration:
-  #         AssignPublicIp: ENABLED
-  #         SecurityGroups:
-  #           - !Ref MyALBSecurityGroupService
-  #         Subnets:
-  #           -  your subnet id
-  #           -  your subnet id
-    
+  #ECSScheduledTaskRule:
+  #  Type: AWS::Events::Rule
+  #  Properties:
+   #   ScheduleExpression: "cron(0 5 25 * ? *)"
+   #   State: ENABLED
+   #   Targets:
+   #     - Id: "ScheduledTaskTarget"
+   #       Arn: !GetAtt ECSPocSERVICE.Arn
+    #      EcsParameters:
+    #        TaskDefinitionArn: !Ref ECSTaskDefinition
+    #        LaunchType: FARGATE
+    #        NetworkConfiguration:
+    #          AwsVpcConfiguration:
+    #            Subnets:
+    #              -  Specify your subnet ID
+    #              -  Specify your subnet ID
+     #           SecurityGroups:
+     #             - Specify your security group ID
+     #           AssignPublicIp: ENABLED
+
+  ECSServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 10
+      MinCapacity: 1
+      ResourceId: !Sub "service/${ECSPocAutoLaunch.ClusterName}/ECSPocSERVICE.ServiceName}"
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      Tags:
+        - Key: NAME
+          Value: ECS-POC-CAPACITY-BBK
+        - Key: Environment
+          Value: !Ref Env
+        - Key: EMAIL
+          Value: !Ref TeamEmail
+        - Key: TEAM
+          Value: !Ref Team
+
+  ECSServiceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ecs-service-scaling-policy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ECSServiceScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 300
+        TargetValue: 60.0
+      Tags:
+        - Key: NAME
+          Value: ECS-POC-CAPACITY-BBK
+        - Key: Environment
+          Value: !Ref Env
+        - Key: EMAIL
+          Value: !Ref TeamEmail
+        - Key: TEAM
+          Value: !Ref Team
+
+
   ECSPocSERVICE:
-    # DependsOn:
-    #  - !Ref ECSPocAutoLaunch
     Type: AWS::ECS::Service
     Properties:
       PlatformVersion: LATEST
@@ -175,7 +200,8 @@ Resources:
       DesiredCount: 2
       EnableExecuteCommand: true
       LaunchType: FARGATE
-      
+      DeploymentController:
+        Type: ECS
       DeploymentConfiguration:
         DeploymentCircuitBreaker:
           Enable: true
